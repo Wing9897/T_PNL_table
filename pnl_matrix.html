@@ -1,0 +1,898 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PnL Matrix</title>
+    <link rel="icon" href="data:,">
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --text-color: #e0e0e0;
+            --border-color: #333;
+            --header-bg-color: #1a1a1a;
+            --positive-color: #00c853;
+            --negative-color: #ff5252;
+            --positive-bg-base: 145, 65%;   /* 綠色 H,S */
+            --negative-bg-base: 0, 75%;      /* 紅色 H,S */
+            --var-bg-color: #8a5a00;         /* VaR：琥珀橙（與虧損紅明顯不同） */
+            --cvar-bg-color: #6a1b9a;        /* CVaR：紫色（最危險，獨立色相） */
+            --current-price-highlight: #b38f00; /* Gold */
+            --crosshair-bg: rgba(255, 255, 255, 0.08);
+            --font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+            --font-mono: 'Cascadia Mono', Consolas, 'SF Mono', 'JetBrains Mono', 'Roboto Mono', ui-monospace, monospace;
+            /* 統一字級系統 */
+            --fs-title: 1.15rem;   /* 標題 */
+            --fs-sub: 0.75rem;     /* 副標 / 提示 */
+            --fs-label: 0.66rem;   /* 大寫小標籤 */
+            --fs-value: 0.92rem;   /* 卡片數值 */
+            --fs-body: 0.84rem;    /* 按鈕 / 一般 */
+            --fs-small: 0.74rem;   /* 次要資訊 */
+            --zoom: 1;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: var(--font-family);
+            margin: 0;
+            padding: 1rem;
+            font-size: 14px;
+        }
+
+        .container { max-width: 1600px; margin: 0 auto; }
+
+        .app-header { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; margin-bottom: 0.9rem; }
+        .title-block { display: flex; align-items: baseline; gap: 0.6rem; }
+        .app-header h1 { font-size: var(--fs-title); margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+        .app-header .subtitle { color: #888; font-size: var(--fs-sub); }
+        .toolbar { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+        #info-bar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: stretch;
+            gap: 0.6rem;
+            margin-bottom: 0.85rem;
+        }
+        /* 兩組:可編輯輸入(左) + 唯讀風險指標(右,等寬四欄) */
+        .inputs-group { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.6rem; }
+        .metrics-group {
+            flex: 1;
+            min-width: 360px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.6rem;
+        }
+
+        #info-bar .info-item {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 2px;
+            min-width: 124px;
+            min-height: 42px;
+            background: #151515;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 5px 11px;
+        }
+        /* 可編輯的輸入卡片：青色左邊框標示，與唯讀指標區分 */
+        #info-bar .info-item.editable { border-left: 3px solid #4fc3f7; }
+        .info-item .label { font-size: var(--fs-label); color: #999; text-transform: uppercase; letter-spacing: 0.05em; }
+        .info-item .value { font-size: var(--fs-value); font-weight: bold; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+        .info-item .value .ticker { color: #4fc3f7; }
+        .info-item .value .var-val { color: var(--negative-color); }
+
+        /* 共用小工具類別（取代 inline style，便於維護） */
+        .inline-field { display: flex; align-items: center; gap: 4px; }
+        .at-price { color: #888; font-weight: normal; font-size: var(--fs-small); }
+        .ticker-input { width: 88px; text-transform: uppercase; }
+        .comm-value-input { width: 72px; }
+        .btn-sm { padding: 3px 8px; }
+
+        .num-input {
+            width: 70px;
+            background: #0d0d0d;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 3px 6px;
+            font-family: var(--font-mono);
+            font-size: var(--fs-body);
+            font-weight: bold;
+        }
+        .num-input:focus { outline: none; border-color: #4fc3f7; }
+        select.num-input { width: auto; }
+
+        #legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.4rem 1.3rem;
+            margin-bottom: 0.75rem;
+            font-size: var(--fs-small);
+            color: #bbb;
+        }
+        #legend .lg { display: flex; align-items: center; gap: 6px; }
+        #legend .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #444; display: inline-block; }
+
+        #settings-panel {
+            display: none;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            gap: 0.75rem 1rem;
+            background: #151515;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 0.75rem 1rem;
+            margin-bottom: 0.85rem;
+        }
+        #settings-panel.open { display: flex; }
+        #settings-panel .set-item { display: flex; flex-direction: column; gap: 3px; }
+        #settings-panel .set-item label { font-size: var(--fs-label); color: #999; text-transform: uppercase; letter-spacing: 0.05em; }
+        #settings-panel select.num-input { width: auto; }
+        #recalc-status { font-size: var(--fs-small); color: #aaa; align-self: center; }
+        #recalc-status.ok { color: var(--positive-color); }
+        #recalc-status.err { color: var(--negative-color); }
+
+        .btn {
+            background-color: #2a2a2a;
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 0.9rem;
+            cursor: pointer;
+            border-radius: 4px;
+            font-family: var(--font-family);
+            font-size: var(--fs-body);
+            line-height: 1;
+            transition: background-color 0.15s ease;
+        }
+        .btn:hover { background-color: #3a3a3a; }
+        .btn:active { background-color: #444; }
+
+        .zoom-group { display: flex; align-items: center; gap: 0.25rem; }
+        .zoom-group .btn { min-width: 2.2rem; text-align: center; font-weight: bold; }
+        #zoom-level { font-size: var(--fs-small); color: #aaa; min-width: 3.2rem; text-align: center; font-family: var(--font-mono); }
+
+        #table-wrap { position: relative; }
+
+        #table-container {
+            overflow: hidden;
+            max-height: 74vh;
+            min-height: 220px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: grab;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        #table-container.grabbing { cursor: grabbing; }
+
+        /* 計算中載入畫面 */
+        #loading {
+            position: absolute;
+            inset: 0;
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+            background: rgba(15, 15, 15, 0.72);
+            backdrop-filter: blur(1px);
+            color: #cfd6dc;
+            font-size: var(--fs-body);
+            letter-spacing: 0.04em;
+            z-index: 6;
+        }
+        #loading.show { display: flex; }
+        #loading .spinner {
+            width: 34px;
+            height: 34px;
+            border-radius: 50%;
+            border: 3px solid #2a2a2a;
+            border-top-color: #4fc3f7;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        #hint {
+            position: absolute;
+            right: 12px;
+            bottom: 12px;
+            background: rgba(20, 20, 20, 0.8);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 6px 10px;
+            font-size: var(--fs-sub);
+            color: #bbb;
+            pointer-events: none;
+            z-index: 5;
+            transition: opacity 0.4s ease;
+        }
+
+        table { border-collapse: collapse; white-space: nowrap; width: 100%; font-size: calc(13px * var(--zoom)); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+        th, td {
+            border: 1px solid var(--border-color);
+            padding: calc(4px * var(--zoom)) calc(6px * var(--zoom));
+            text-align: center;
+            min-width: calc(72px * var(--zoom));
+            position: relative;
+        }
+
+        thead th { background-color: var(--header-bg-color); position: sticky; top: 0; z-index: 2; }
+        tbody th { background-color: var(--header-bg-color); position: sticky; left: 0; z-index: 1; min-width: calc(96px * var(--zoom)); }
+        thead th:first-child { position: sticky; top: 0; left: 0; z-index: 3; }
+
+        .pnl-amount { font-weight: bold; font-size: 1em; }
+        .pnl-pct { font-size: 0.82em; }
+        .pnl-prob { font-size: 0.72em; color: #9e9e9e; }
+        .pnl-loss { font-size: 0.72em; color: #ffab91; }
+
+        /* 左側買入價欄的風險資訊 */
+        tbody th .bh-price { font-weight: bold; font-size: 0.98em; }
+        tbody th .bh-risk { font-size: 0.72em; color: #ff9e80; }
+        tbody th .bh-loss { font-size: 0.66em; color: #aaa; }
+        tbody th .bh-tag { font-size: 0.72em; }
+
+        /* 左上角座標說明：賣出價在上、買入價在下，中間對角線分隔 */
+        thead th.corner-th {
+            background-image: linear-gradient(to top right, transparent calc(50% - 0.5px), var(--border-color) 50%, transparent calc(50% + 0.5px));
+        }
+        .corner-inner { display: flex; flex-direction: column; justify-content: space-between; min-height: 2.6em; gap: 2px; }
+        .corner-sell { align-self: flex-end; color: #4fc3f7; font-size: 0.8em; }
+        .corner-buy { align-self: flex-start; color: #ffb59e; font-size: 0.8em; }
+        /* 現價列（金底）改用深色文字 */
+        .current-price-row th .bh-risk,
+        .current-price-row th .bh-loss { color: #4a2a00; }
+
+        .positive { color: var(--positive-color); }
+        .negative { color: var(--negative-color); }
+
+        .diagonal { opacity: 0.55; }
+
+        /* 風險區:獲利/損失文字沿用綠/紅，加細微陰影提升在琥珀/紫底上的可讀性 */
+        td.risk-var .pnl-amount, td.risk-var .pnl-pct, td.risk-var .pnl-loss,
+        td.risk-cvar .pnl-amount, td.risk-cvar .pnl-pct, td.risk-cvar .pnl-loss { text-shadow: 0 1px 2px rgba(0,0,0,0.65); }
+        td.risk-var .pnl-prob, td.risk-cvar .pnl-prob { color: #d8d8d8; }
+
+        .current-price-row th { background-color: var(--current-price-highlight) !important; color: black; }
+        .current-price-col { background-color: var(--current-price-highlight) !important; color: black; }
+
+        /* 現價格（對角交點）高亮環 */
+        td[data-current="1"] {
+            outline: 2px solid var(--current-price-highlight);
+            outline-offset: -2px;
+        }
+
+        /* sticky 表頭陰影，增加層次感 */
+        thead th { box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
+        tbody th { box-shadow: 2px 0 4px rgba(0,0,0,0.4); }
+
+        /* 十字準星高亮 */
+        tbody tr.hl-row td { box-shadow: inset 0 0 0 9999px var(--crosshair-bg); }
+        td.hl-col, th.hl-col { box-shadow: inset 0 0 0 9999px var(--crosshair-bg); }
+
+        #tooltip {
+            position: fixed;
+            display: none;
+            background-color: rgba(20, 20, 20, 0.95);
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 10px 12px;
+            font-size: var(--fs-small);
+            font-family: var(--font-mono);
+            pointer-events: none;
+            z-index: 10;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+        }
+        #tooltip-content { white-space: pre; line-height: 1.5; }
+
+        #error-container {
+            color: var(--negative-color);
+            padding: 2rem;
+            text-align: center;
+            border: 1px dashed var(--negative-color);
+            border-radius: 4px;
+            margin: 1rem 0;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <div class="title-block">
+                <h1>PnL Matrix</h1>
+                <span class="subtitle">買入 × 賣出 損益矩陣 · 含信心值與 VaR/CVaR 風險</span>
+            </div>
+            <div class="toolbar">
+                <div class="zoom-group">
+                    <button class="btn" id="zoom-out" title="縮小 (-)">−</button>
+                    <span id="zoom-level">100%</span>
+                    <button class="btn" id="zoom-in" title="放大 (+)">＋</button>
+                </div>
+                <button class="btn" id="center-btn" title="回到現價 (0)">回到現價</button>
+                <button class="btn" id="settings-btn" title="資料設定 / 重新計算">⚙ 設定</button>
+                <button class="btn" id="reload-btn" title="重新載入數據">重新整理</button>
+            </div>
+        </div>
+
+        <div id="info-bar"></div>
+
+        <div id="legend">
+            <span class="lg"><span class="sw" style="background:hsla(145,65%,28%,0.65)"></span>獲利</span>
+            <span class="lg"><span class="sw" style="background:hsla(0,75%,28%,0.65)"></span>虧損</span>
+            <span class="lg"><span class="sw" style="background:var(--var-bg-color)"></span>VaR 風險區</span>
+            <span class="lg"><span class="sw" style="background:var(--cvar-bg-color)"></span>CVaR 風險區</span>
+            <span class="lg"><span class="sw" style="background:var(--current-price-highlight)"></span>目前價位</span>
+        </div>
+
+        <div id="settings-panel">
+            <div class="set-item">
+                <label>數據期間</label>
+                <select id="set-period" class="num-input">
+                    <option value="1mo">1mo</option>
+                    <option value="3mo">3mo</option>
+                    <option value="6mo">6mo</option>
+                    <option value="1y" selected>1y</option>
+                    <option value="2y">2y</option>
+                    <option value="5y">5y</option>
+                    <option value="max">max</option>
+                </select>
+            </div>
+            <div class="set-item">
+                <label>價位格數 (±)</label>
+                <input id="set-range" class="num-input" type="number" min="2" step="1" value="18">
+            </div>
+            <div class="set-item">
+                <label>間隔模式</label>
+                <select id="set-step-mode" class="num-input">
+                    <option value="dollar">固定金額 $</option>
+                    <option value="percent">百分比 %</option>
+                </select>
+            </div>
+            <div class="set-item">
+                <label id="set-step-label">價格間距 $</label>
+                <input id="set-interval" class="num-input" type="number" min="0.01" step="0.1" value="1">
+            </div>
+            <button class="btn" id="recalc-btn">重新計算</button>
+            <span id="recalc-status"></span>
+        </div>
+
+        <div id="table-wrap">
+            <div id="table-container">
+                <table>
+                    <thead id="table-head"></thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+            </div>
+            <div id="hint">左鍵拖曳平移 · 滾輪縮放</div>
+            <div id="loading"><div class="spinner"></div><span>正在計算數據…</span></div>
+        </div>
+
+        <div id="error-container"></div>
+    </div>
+
+    <div id="tooltip"><div id="tooltip-content"></div></div>
+
+    <script>
+    const __init = () => {
+        const $ = (id) => document.getElementById(id);
+        const infoBar = $('info-bar');
+        const tableContainer = $('table-container');
+        const tableHead = $('table-head');
+        const tableBody = $('table-body');
+        const errorContainer = $('error-container');
+        const tooltip = $('tooltip');
+        const tooltipContent = $('tooltip-content');
+        const hint = $('hint');
+        const loading = $('loading');
+        const showLoading = (b) => loading.classList.toggle('show', b);
+
+        let currentData = null;
+        let currentShares = null;        // 由使用者即時調整的持股數量
+        let currentCommMode = null;      // 佣金模式：'percent' | 'fixed'
+        let currentCommValue = null;     // percent: 比率(0.001) | fixed: 金額($/筆)
+        let currentPriceCell = null; // 用於「回到現價」置中
+
+        // 依目前股量與佣金（百分比或固定金額）即時計算損益與報酬率
+        const computeCell = (buy, sell) => {
+            let buyCost, sellRev;
+            if (currentCommMode === 'fixed') {
+                buyCost = buy * currentShares + currentCommValue;   // 每筆固定佣金，買賣各收
+                sellRev = sell * currentShares - currentCommValue;
+            } else {
+                buyCost = buy * currentShares * (1 + currentCommValue);
+                sellRev = sell * currentShares * (1 - currentCommValue);
+            }
+            const pnl = sellRev - buyCost;
+            const pnl_pct = buyCost !== 0 ? (pnl / buyCost) * 100 : 0;
+            return { pnl, pnl_pct };
+        };
+
+        // 變更股量/佣金後重繪表格，但保留目前的捲動位置與縮放
+        const reRenderKeepView = () => {
+            const sl = tableContainer.scrollLeft, st = tableContainer.scrollTop;
+            renderTable(currentData);
+            tableContainer.scrollLeft = sl;
+            tableContainer.scrollTop = st;
+        };
+
+        // 某買入價(列)的風險：蝕錢機率、VaR/CVaR 潛在虧損、做T評級。列標題與 tooltip 共用。
+        const computeRowRisk = (r) => {
+            const d = currentData;
+            const buy = d.price_levels[r];
+            const lossProb = d.loss_prob ? d.loss_prob[r] : null;
+            const varLoss = buy * currentShares * ((d.var_pct || 0) / 100);
+            const cvarLoss = buy * currentShares * ((d.cvar_pct || 0) / 100);
+            let emoji = '✅', text = '值博';
+            if (buy <= d.cvar_price) { emoji = '⛔'; text = '不建議'; }
+            else if (buy <= d.var_price) { emoji = '⚠️'; text = '謹慎'; }
+            return { buy, lossProb, varLoss, cvarLoss, emoji, text };
+        };
+
+        // ====================== 縮放 (滾輪 / 按鈕，定點縮放) ======================
+        const ZOOM_MIN = 0.4, ZOOM_MAX = 2.6;
+        let zoom = 1;
+        const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+        const updateZoomLabel = () => {
+            const el = $('zoom-level');
+            if (el) el.textContent = Math.round(zoom * 100) + '%';
+        };
+
+        const applyZoom = (newZoom, clientX, clientY) => {
+            newZoom = clamp(newZoom, ZOOM_MIN, ZOOM_MAX);
+            if (newZoom === zoom) return;
+            const rect = tableContainer.getBoundingClientRect();
+            // 預設以容器中心為縮放錨點
+            const px = (clientX ?? rect.left + rect.width / 2) - rect.left;
+            const py = (clientY ?? rect.top + rect.height / 2) - rect.top;
+            const ratio = newZoom / zoom;
+            // 所有尺寸隨 zoom 線性縮放 → 內容座標同比例縮放，據此保持游標下的點不動
+            const newScrollLeft = (tableContainer.scrollLeft + px) * ratio - px;
+            const newScrollTop = (tableContainer.scrollTop + py) * ratio - py;
+            zoom = newZoom;
+            tableContainer.style.setProperty('--zoom', zoom);
+            tableContainer.scrollLeft = newScrollLeft;
+            tableContainer.scrollTop = newScrollTop;
+            updateZoomLabel();
+        };
+
+        tableContainer.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+            applyZoom(zoom * factor, e.clientX, e.clientY);
+        }, { passive: false });
+
+        // ====================== 左鍵拖曳平移 (像 Google Maps) ======================
+        let isPanning = false;
+        let startX, startY, scrollLeftStart, scrollTopStart;
+
+        tableContainer.addEventListener('contextmenu', (e) => e.preventDefault());
+
+        tableContainer.addEventListener('mousedown', (e) => {
+            if (e.button !== 0) return; // 只用左鍵平移
+            e.preventDefault();
+            isPanning = true;
+            tableContainer.classList.add('grabbing');
+            startX = e.pageX;
+            startY = e.pageY;
+            scrollLeftStart = tableContainer.scrollLeft;
+            scrollTopStart = tableContainer.scrollTop;
+            tooltip.style.display = 'none';
+            clearCrosshair();
+        });
+
+        const stopPanning = () => {
+            if (!isPanning) return;
+            isPanning = false;
+            tableContainer.classList.remove('grabbing');
+        };
+
+        window.addEventListener('mouseup', stopPanning);
+        window.addEventListener('mousemove', (e) => {
+            if (!isPanning) return;
+            e.preventDefault();
+            tableContainer.scrollLeft = scrollLeftStart - (e.pageX - startX);
+            tableContainer.scrollTop = scrollTopStart - (e.pageY - startY);
+        });
+
+        // 鍵盤平移 / 縮放
+        window.addEventListener('keydown', (e) => {
+            const step = 60;
+            if (e.key === 'ArrowLeft') tableContainer.scrollLeft -= step;
+            else if (e.key === 'ArrowRight') tableContainer.scrollLeft += step;
+            else if (e.key === 'ArrowUp') tableContainer.scrollTop -= step;
+            else if (e.key === 'ArrowDown') tableContainer.scrollTop += step;
+            else if (e.key === '+' || e.key === '=') applyZoom(zoom * 1.15);
+            else if (e.key === '-' || e.key === '_') applyZoom(zoom / 1.15);
+            else if (e.key === '0') resetView();
+        });
+
+        // 首次操作後淡出提示
+        const fadeHintOnce = () => { hint.style.opacity = '0'; tableContainer.removeEventListener('mousedown', fadeHintOnce); tableContainer.removeEventListener('wheel', fadeHintOnce); };
+        tableContainer.addEventListener('mousedown', fadeHintOnce);
+        tableContainer.addEventListener('wheel', fadeHintOnce);
+
+        const centerOnCurrentPrice = () => {
+            if (!currentPriceCell) return;
+            const cRect = tableContainer.getBoundingClientRect();
+            const tRect = currentPriceCell.getBoundingClientRect();
+            tableContainer.scrollLeft += (tRect.left - cRect.left) - (cRect.width - tRect.width) / 2;
+            tableContainer.scrollTop += (tRect.top - cRect.top) - (cRect.height - tRect.height) / 2;
+        };
+
+        // 等版面與字體就緒後再置中，避免量到舊尺寸
+        const centerWhenReady = () => requestAnimationFrame(() => requestAnimationFrame(centerOnCurrentPrice));
+
+        const resetView = () => {
+            zoom = 1;
+            tableContainer.style.setProperty('--zoom', zoom);
+            updateZoomLabel();
+            centerWhenReady();
+        };
+
+        // ====================== 十字準星 + Tooltip (事件委派) ======================
+        let hlRow = null;
+        const hlColCells = [];
+
+        const clearCrosshair = () => {
+            if (hlRow) { hlRow.classList.remove('hl-row'); hlRow = null; }
+            while (hlColCells.length) hlColCells.pop().classList.remove('hl-col');
+        };
+
+        const positionTooltip = (clientX, clientY) => {
+            const pad = 15;
+            const tw = tooltip.offsetWidth, th = tooltip.offsetHeight;
+            let x = clientX + pad, y = clientY + pad;
+            if (x + tw > window.innerWidth) x = clientX - tw - pad;
+            if (y + th > window.innerHeight) y = clientY - th - pad;
+            tooltip.style.left = Math.max(4, x) + 'px';
+            tooltip.style.top = Math.max(4, y) + 'px';
+        };
+
+        tableBody.addEventListener('mousemove', (e) => {
+            if (isPanning || !currentData) return;
+            const td = e.target.closest('td');
+            if (!td || td.dataset.c === undefined) return;
+
+            const r = +td.dataset.r, c = +td.dataset.c;
+            const d = currentData;
+            const buy = d.price_levels[r], sell = d.price_levels[c];
+
+            // 十字準星
+            const tr = td.parentElement;
+            if (hlRow !== tr) {
+                clearCrosshair();
+                hlRow = tr; tr.classList.add('hl-row');
+                const headTh = tableHead.querySelectorAll('th')[c + 1];
+                if (headTh) { headTh.classList.add('hl-col'); hlColCells.push(headTh); }
+                tableBody.querySelectorAll(`td[data-c="${c}"]`).forEach(cell => { cell.classList.add('hl-col'); hlColCells.push(cell); });
+            }
+
+            // Tooltip（由索引即時計算，不在 DOM 存資料）
+            const { pnl, pnl_pct } = computeCell(buy, sell);
+            const prob = d.matrix[r][c].prob;
+            const risk = computeRowRisk(r);
+            let riskMark = '';
+            if (sell <= d.cvar_price) riskMark = '\n⚠ 賣價落在 CVaR 風險區';
+            else if (sell <= d.var_price) riskMark = '\n⚠ 賣價落在 VaR 風險區';
+            let riskLines = '';
+            if (risk.lossProb !== null) {
+                riskLines =
+                    `\n──（買入價 ${buy.toFixed(2)} 風險）──\n` +
+                    `蝕錢機率: ${risk.lossProb.toFixed(1)}%\n` +
+                    `VaR 潛在虧損: -$${risk.varLoss.toFixed(2)}\n` +
+                    `CVaR 潛在虧損: -$${risk.cvarLoss.toFixed(2)}\n` +
+                    `做T評級: ${risk.text}`;
+            }
+            tooltipContent.textContent =
+                `買入: ${buy.toFixed(2)}\n` +
+                `賣出: ${sell.toFixed(2)}\n` +
+                `損益: ${pnl > 0 ? '+' : ''}$${pnl.toFixed(2)} (${pnl_pct.toFixed(2)}%)\n` +
+                `信心(達成賣價): ${prob}%${riskMark}${riskLines}`;
+            tooltip.style.display = 'block';
+            positionTooltip(e.clientX, e.clientY);
+        });
+
+        tableContainer.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+            clearCrosshair();
+        });
+
+        // ====================== 資料載入 ======================
+        const applyData = (data) => {
+            if (data && data.error) throw new Error(data.error);
+            currentData = data;
+            if (currentShares === null) currentShares = data.shares; // 首次載入採用預設股量
+            if (currentCommMode === null) currentCommMode = data.commission_mode || 'percent';
+            if (currentCommValue === null) currentCommValue = (data.commission_value ?? data.commission_pct ?? 0.001);
+            render(data);
+            centerWhenReady();
+        };
+
+        // 取得資料：桌面版用 pywebview API（記憶體計算，不需 json）；瀏覽器則退回 fetch json
+        const acquireData = async () => {
+            const api = window.pywebview && window.pywebview.api;
+            if (api && api.get_data) return await api.get_data();
+            const response = await fetch(`matrix_data.json?t=${Date.now()}`);
+            if (!response.ok) {
+                throw new Error(`HTTP 錯誤! 狀態: ${response.status}。桌面版請執行 python app.py；若用瀏覽器則需先跑 pnl_matrix.py 並透過 http 伺服器開啟。`);
+            }
+            return await response.json();
+        };
+
+        const fetchData = async () => {
+            try {
+                errorContainer.style.display = 'none';
+                showLoading(true);
+                applyData(await acquireData());
+            } catch (error) {
+                console.error('Load error:', error);
+                errorContainer.innerHTML = `無法載入數據: <br>${error.message}`;
+                errorContainer.style.display = 'block';
+                tableHead.innerHTML = '';
+                tableBody.innerHTML = '';
+            } finally {
+                showLoading(false);
+            }
+        };
+
+        const render = (data) => { renderInfoBar(data); renderTable(data); syncSettingsFromData(data); };
+
+        // 把目前資料反映到設定面板（price_range 由 price_levels 推回；間隔模式/值由資料帶出）
+        const syncSettingsFromData = (data) => {
+            const lv = data.price_levels;
+            const el = $;
+            const mode = data.step_mode || 'dollar';
+            if (el('set-period')) el('set-period').value = data.period;
+            if (el('set-range')) el('set-range').value = (lv.length - 1) / 2;
+            if (el('set-step-mode')) el('set-step-mode').value = mode;
+            if (el('set-interval')) {
+                el('set-interval').value = mode === 'percent'
+                    ? (data.interval_pct ?? 0.5)
+                    : (data.interval ?? (lv.length > 1 ? +(lv[1] - lv[0]).toFixed(2) : 1));
+            }
+            updateStepLabel(mode);
+        };
+
+        // 依模式更新「價格間距」欄位的標籤與輸入步進
+        const updateStepLabel = (mode) => {
+            const label = $('set-step-label');
+            const input = $('set-interval');
+            if (!label || !input) return;
+            if (mode === 'percent') { label.textContent = '價格間距 %（現價）'; input.step = '0.1'; input.min = '0.01'; }
+            else { label.textContent = '價格間距 $'; input.step = '0.1'; input.min = '0.01'; }
+        };
+
+        const renderInfoBar = (data) => {
+            infoBar.innerHTML = `
+                <div class="inputs-group">
+                    <div class="info-item editable">
+                        <span class="label">股票代號</span>
+                        <span class="value inline-field">
+                            <input id="ticker-input" class="num-input ticker-input" type="text" value="${data.ticker}" title="輸入代號後按 Enter 或「載入」">
+                            <button class="btn btn-sm" id="load-btn" title="載入此股票">載入</button>
+                            <span class="at-price">@ ${data.last_price.toFixed(2)}</span>
+                        </span>
+                    </div>
+                    <div class="info-item editable">
+                        <span class="label">持股數量</span>
+                        <span class="value inline-field"><input id="shares-input" class="num-input" type="number" min="1" step="1" value="${currentShares}"> 股</span>
+                    </div>
+                    <div class="info-item editable">
+                        <span class="label">佣金</span>
+                        <span class="value inline-field">
+                            <select id="comm-mode" class="num-input">
+                                <option value="percent">%</option>
+                                <option value="fixed">$/筆</option>
+                            </select>
+                            <input id="comm-value" class="num-input comm-value-input" type="number" min="0" step="0.01">
+                        </span>
+                    </div>
+                </div>
+                <div class="metrics-group">
+                    <div class="info-item">
+                        <span class="label">VaR ${data.confidence * 100}% (日)</span>
+                        <span class="value"><span class="var-val">${data.var_price.toFixed(2)} (-${data.var_pct.toFixed(2)}%)</span></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">CVaR (日)</span>
+                        <span class="value"><span class="var-val">${data.cvar_price.toFixed(2)} (-${data.cvar_pct.toFixed(2)}%)</span></span>
+                    </div>
+                    <div class="info-item" title="期間內最高點 ${data.mdd_peak_price ?? ''}@${data.mdd_peak_date ?? ''} → 最低點 ${data.mdd_trough_price ?? ''}@${data.mdd_trough_date ?? ''}">
+                        <span class="label">最大跌幅</span>
+                        <span class="value"><span class="var-val">-${(data.max_drawdown_pct ?? 0).toFixed(2)}%</span></span>
+                    </div>
+                    <div class="info-item">
+                        <span class="label">數據期間</span>
+                        <span class="value">${data.date_start} ~ ${data.date_end} (${data.sample_days}天)</span>
+                    </div>
+                </div>
+            `;
+            // 股票代號：按「載入」或 Enter 觸發重算
+            const tickerInput = $('ticker-input');
+            const loadBtn = $('load-btn');
+            if (loadBtn) loadBtn.addEventListener('click', () => doRegenerate());
+            if (tickerInput) tickerInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') { e.preventDefault(); doRegenerate(); }
+            });
+            const sharesInput = $('shares-input');
+            sharesInput.addEventListener('input', () => {
+                const v = parseInt(sharesInput.value, 10);
+                if (!Number.isFinite(v) || v < 1) return;
+                currentShares = v;
+                reRenderKeepView();
+            });
+
+            // 佣金：模式(% / $每筆) + 數值，即時重算
+            const commMode = $('comm-mode');
+            const commValue = $('comm-value');
+            const showCommValue = () => {
+                commValue.value = currentCommMode === 'percent'
+                    ? +(currentCommValue * 100).toFixed(4)   // 比率 → 顯示為 %
+                    : +Number(currentCommValue).toFixed(2);  // 固定金額 $
+            };
+            commMode.value = currentCommMode;
+            showCommValue();
+            const applyCommInputs = () => {
+                currentCommMode = commMode.value;
+                const v = parseFloat(commValue.value);
+                const num = Number.isFinite(v) && v >= 0 ? v : 0;
+                currentCommValue = currentCommMode === 'percent' ? num / 100 : num;
+                reRenderKeepView();
+            };
+            commMode.addEventListener('change', () => { applyCommInputs(); showCommValue(); });
+            commValue.addEventListener('input', applyCommInputs);
+        };
+
+        const getHeatmapColor = (pnl_pct) => {
+            const intensity = Math.min(Math.abs(pnl_pct) / 10, 1);
+            const lightness = 12 + intensity * 22; // 12% ~ 34%
+            if (pnl_pct > 0) return `hsla(var(--positive-bg-base), ${lightness}%, 0.65)`;
+            if (pnl_pct < 0) return `hsla(var(--negative-bg-base), ${lightness}%, 0.65)`;
+            return 'transparent';
+        };
+
+        const findClosestIndex = (arr, target) =>
+            arr.reduce((prev, curr, i) => (Math.abs(curr - target) < Math.abs(arr[prev] - target) ? i : prev), 0);
+
+        const renderTable = (data) => {
+            clearCrosshair();
+            currentPriceCell = null;
+            const priceLevels = data.price_levels;
+            const matrix = data.matrix;
+            const lastPriceIndex = findClosestIndex(priceLevels, data.last_price);
+
+            // Header (一次性以字串組合，效能更好)
+            let headHtml = '<tr><th class="corner-th"><div class="corner-inner"><span class="corner-sell">賣出價 →</span><span class="corner-buy">↓ 買入價</span></div></th>';
+            priceLevels.forEach((price, index) => {
+                let cls = (index === lastPriceIndex) ? ' class="current-price-col"' : '';
+                let style = '';
+                if (price <= data.cvar_price) style = ' style="background-color:var(--cvar-bg-color)"';
+                else if (price <= data.var_price) style = ' style="background-color:var(--var-bg-color)"';
+                headHtml += `<th${cls}${style}>${price.toFixed(2)}</th>`;
+            });
+            headHtml += '</tr>';
+            tableHead.innerHTML = headHtml;
+
+            // Body
+            let bodyHtml = '';
+            matrix.forEach((row, rowIndex) => {
+                const rowCls = (rowIndex === lastPriceIndex) ? ' class="current-price-row"' : '';
+                const risk = computeRowRisk(rowIndex);
+                const lossLine = risk.lossProb != null ? `<div class="pnl-loss">蝕 ${risk.lossProb.toFixed(1)}%</div>` : '';
+                const riskHtml = (risk.lossProb === null) ? '' :
+                    `<div class="bh-risk">蝕 ${risk.lossProb.toFixed(1)}%</div>` +
+                    `<div class="bh-loss" title="VaR 潛在單日虧損 -$${risk.varLoss.toFixed(2)} / CVaR -$${risk.cvarLoss.toFixed(2)}">VaR -$${risk.varLoss.toFixed(2)}</div>` +
+                    `<div class="bh-tag" title="做T評級：${risk.text}">${risk.emoji} ${risk.text}</div>`;
+                bodyHtml += `<tr${rowCls}><th><div class="bh-price">${risk.buy.toFixed(2)}</div>${riskHtml}</th>`;
+                row.forEach((cell, colIndex) => {
+                    const { pnl, pnl_pct } = computeCell(cell.buy, cell.sell);
+                    const pnlColorClass = pnl > 0 ? 'positive' : 'negative';
+                    let bg, riskCls = '';
+                    if (cell.sell <= data.cvar_price) { bg = 'var(--cvar-bg-color)'; riskCls = ' risk-cvar'; }
+                    else if (cell.sell <= data.var_price) { bg = 'var(--var-bg-color)'; riskCls = ' risk-var'; }
+                    else bg = getHeatmapColor(pnl_pct);
+                    const diag = (rowIndex === colIndex) ? ' diagonal' : '';
+                    const cur = (rowIndex === lastPriceIndex && colIndex === lastPriceIndex) ? ' data-current="1"' : '';
+                    bodyHtml +=
+                        `<td class="cell${diag}${riskCls}" data-r="${rowIndex}" data-c="${colIndex}"${cur} style="background-color:${bg}">` +
+                            `<div class="pnl-amount ${pnlColorClass}">${pnl > 0 ? '+' : ''}$${pnl.toFixed(2)}</div>` +
+                            `<div class="pnl-pct ${pnlColorClass}">${pnl_pct.toFixed(2)}%</div>` +
+                            `<div class="pnl-prob">信心 ${cell.prob}%</div>` +
+                            lossLine +
+                        `</td>`;
+                });
+                bodyHtml += '</tr>';
+            });
+            tableBody.innerHTML = bodyHtml;
+            currentPriceCell = tableBody.querySelector('td[data-current="1"]');
+        };
+
+        // 重新計算：收集設定 → 呼叫 Python 後端（pywebview）重算並套用
+        const recalcBtn = $('recalc-btn');
+        const recalcStatus = $('recalc-status');
+        $('set-step-mode').addEventListener('change', (e) => updateStepLabel(e.target.value));
+
+        const setStatus = (cls, msg) => { recalcStatus.className = cls; recalcStatus.textContent = msg; };
+
+        const doRegenerate = async () => {
+            const api = window.pywebview && window.pywebview.api;
+            if (!api || !api.regenerate) {
+                setStatus('err', '此功能需在桌面版執行 (python app.py)');
+                $('settings-panel').classList.add('open');
+                return;
+            }
+            const val = (id) => $(id).value;
+            const tickerEl = $('ticker-input');
+            const ticker = (tickerEl ? tickerEl.value.trim() : '').toUpperCase() || (currentData ? currentData.ticker : 'AAPL');
+            const stepMode = val('set-step-mode');
+            const stepVal = parseFloat(val('set-interval')) || (stepMode === 'percent' ? 0.5 : 1);
+            const params = {
+                ticker,
+                period: val('set-period'),
+                price_range: parseInt(val('set-range'), 10) || 18,
+                step_mode: stepMode,
+                commission_mode: currentCommMode,
+                shares: currentShares || 5,
+            };
+            if (stepMode === 'percent') params.interval_pct = stepVal;
+            else params.interval = stepVal;
+            if (currentCommMode === 'fixed') params.commission_fixed = currentCommValue;
+            else params.commission_pct = currentCommValue;
+
+            recalcBtn.disabled = true;
+            setStatus('', `計算中… (${ticker})`);
+            showLoading(true);
+            try {
+                const data = await api.regenerate(params);
+                if (data && data.error) {
+                    setStatus('err', '失敗：' + data.error);
+                } else {
+                    applyData(data);
+                    setStatus('ok', `已更新 ${data.ticker} @ ${data.last_price}`);
+                }
+            } catch (err) {
+                setStatus('err', '失敗：' + err.message);
+            } finally {
+                recalcBtn.disabled = false;
+                showLoading(false);
+            }
+        };
+        recalcBtn.addEventListener('click', doRegenerate);
+
+        // 頂部工具列（靜態，監聽器只綁一次）
+        $('reload-btn').addEventListener('click', fetchData);
+        $('center-btn').addEventListener('click', resetView);
+        $('settings-btn').addEventListener('click', () => $('settings-panel').classList.toggle('open'));
+        $('zoom-in').addEventListener('click', () => applyZoom(zoom * 1.2));
+        $('zoom-out').addEventListener('click', () => applyZoom(zoom / 1.2));
+        updateZoomLabel();
+
+        // 啟動：桌面版等 pywebview 橋接就緒再取資料；瀏覽器則短暫等待後以後備模式啟動
+        let booted = false;
+        const boot = () => { if (booted) return; booted = true; fetchData(); };
+        if (window.pywebview && window.pywebview.api) {
+            boot();
+        } else {
+            window.addEventListener('pywebviewready', boot);
+            setTimeout(boot, 800); // 無 pywebview（純瀏覽器）後備
+            window.addEventListener('load', () => setTimeout(boot, 1200)); // 最終後備
+        }
+    };
+
+    // 確保 DOM 解析後才初始化；pywebview 載入本機檔時 DOMContentLoaded 可能已觸發，
+    // 此時直接執行，避免錯過事件導致整個介面不渲染。
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', __init);
+    } else {
+        __init();
+    }
+    </script>
+</body>
+</html>

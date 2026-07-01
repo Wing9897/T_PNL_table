@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller 打包產物
+build/
+dist/
+*.spec
+
+# 編輯器
+.vscode/
+.idea/
+
+# 執行期產生的資料快取（桌面版不需要；僅 CLI/瀏覽器模式會產生）
+matrix_data.json
