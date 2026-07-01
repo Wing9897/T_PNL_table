@@ -1,18 +1,20 @@
-name: Build Python Executable
+name: Build and Release
 
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
-  build:
+  build_and_release:
     runs-on: windows-latest
+    permissions:
+      contents: write # Needed to create releases and push tags
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required for git-based version bumping
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -28,8 +30,17 @@ jobs:
     - name: Build with PyInstaller
       run: pyinstaller --noconfirm --windowed --name PnLMatrix --add-data "pnl_matrix.html;." app.py
 
-    - name: Upload artifact
-      uses: actions/upload-artifact@v4
+    - name: Bump version and push tag
+      id: tag_version
+      uses: mathieudutour/github-tag-action@v6.2
       with:
-        name: PnLMatrix-Windows
-        path: dist/PnLMatrix.exe
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        default_bump: "patch"
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag_version.outputs.new_tag }}
+        name: "Release ${{ steps.tag_version.outputs.new_tag }}"
+        body: "Automated release based on the latest changes."
+        files: dist/PnLMatrix.exe
