@@ -28,7 +28,7 @@ jobs:
         pip install -r requirements.txt
 
     - name: Build with PyInstaller
-      run: pyinstaller --noconfirm --windowed --name PnLMatrix --add-data "pnl_matrix.html;." app.py
+      run: pyinstaller --noconfirm --windowed --onefile --name PnLMatrix --add-data "pnl_matrix.html;." app.py
 
     - name: List build artifacts
       run: ls -R dist
