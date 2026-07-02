@@ -22,6 +22,11 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 OUTPUT_FILE = "matrix_data.json"
 
+# 防呆上限：避免價位格數/窗口天數被設成離譜的值造成矩陣暴增（記憶體/渲染卡死）或統計無意義。
+MIN_PRICE_RANGE = 1
+MAX_PRICE_RANGE = 300          # (2*300+1)^2 ≈ 36 萬格，已是前端合理可渲染的上限
+MIN_K_LINE_WINDOW = 2          # 至少要 2 天才能比較「形狀」
+
 
 def _extract_close_series(hist: pd.DataFrame, ticker: str) -> pd.Series:
     """從 yfinance 回傳的 DataFrame 中穩健地取出收盤價 Series。
@@ -140,6 +145,17 @@ def generate_pnl_matrix(
         "percent" → 佣金為交易金額的 commission_pct（如 0.001 = 0.1%），每邊各收。
         "fixed"   → 佣金為每筆固定金額 commission_fixed（如 $1），買/賣各收一次。
     """
+    # 參數防呆：在打任何網路請求之前先檔掉明顯不合理的輸入
+    if not (MIN_PRICE_RANGE <= price_range <= MAX_PRICE_RANGE):
+        raise ValueError(
+            f"價位格數需介於 {MIN_PRICE_RANGE} 到 {MAX_PRICE_RANGE} 之間（目前: {price_range}）。"
+        )
+    if not (0.0 < confidence < 1.0):
+        raise ValueError(f"VaR/CVaR 信心水準需介於 0 到 1 之間（目前: {confidence}）。")
+    if k_line_window_size < MIN_K_LINE_WINDOW:
+        print(f"警告：K線窗口天數過小（{k_line_window_size}），已自動調整為 {MIN_K_LINE_WINDOW}。")
+        k_line_window_size = MIN_K_LINE_WINDOW
+
     print(f"開始為 {ticker} 生成數據...")
 
     hist = yf.download(ticker, period=period, progress=False, auto_adjust=True)
@@ -233,6 +249,7 @@ def generate_pnl_matrix(
         "mdd_peak_date": mdd_peak_date,
         "mdd_trough_date": mdd_trough_date,
         "confidence": confidence,
+        "k_line_window_size": k_line_window_size,
         "period": period,
         "step_mode": step_mode,
         "interval": interval,

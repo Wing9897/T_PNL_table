@@ -235,7 +235,40 @@
         tbody th .bh-price { font-weight: bold; font-size: 0.98em; }
         tbody th .bh-risk { font-size: 0.72em; color: #ff9e80; }
         tbody th .bh-loss { font-size: 0.66em; color: #aaa; }
-        tbody th .bh-tag { font-size: 0.72em; }
+        tbody th .bh-tag {
+            font-size: 0.72em;
+            display: inline-block;
+            margin-top: 1px;
+            padding: 0px 5px;
+            border-radius: 3px;
+            font-weight: 600;
+        }
+        /* 做T評級四態各自獨立配色，避免只靠 emoji 分辨（謹慎/追高皆為 ⚠️，易混淆） */
+        .bh-tag.tag-good    { background: rgba(0, 200, 83, 0.24);  color: #69f0ae; }
+        .bh-tag.tag-caution { background: rgba(255, 193, 7, 0.24); color: #ffca28; }
+        .bh-tag.tag-bad     { background: rgba(255, 82, 82, 0.24); color: #ff8a80; }
+        .bh-tag.tag-chase   { background: rgba(79, 195, 247, 0.24); color: #4fc3f7; }
+        /* 現價列（金底）文字改深色，但保留各狀態底色以便一眼區分 */
+        .current-price-row th .bh-tag.tag-good    { background: rgba(0, 60, 25, 0.35);  color: #003d1a; }
+        .current-price-row th .bh-tag.tag-caution { background: rgba(90, 60, 0, 0.35);  color: #4a2a00; }
+        .current-price-row th .bh-tag.tag-bad     { background: rgba(90, 0, 0, 0.35);   color: #4a0000; }
+        .current-price-row th .bh-tag.tag-chase   { background: rgba(0, 40, 60, 0.35);  color: #00303d; }
+
+        /* 做T評分連續分數條：取代單純的四段跳級文字，寬度=分數，一眼看出漸層強弱 */
+        .bh-score-track {
+            width: 100%;
+            height: 3px;
+            margin-top: 2px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .bh-score-fill { height: 100%; border-radius: 2px; transition: width 0.15s ease; }
+        .bh-score-fill.tag-good    { background: #00c853; }
+        .bh-score-fill.tag-caution { background: #ffc107; }
+        .bh-score-fill.tag-bad     { background: #ff5252; }
+        .bh-score-fill.tag-chase   { background: #4fc3f7; }
+        .current-price-row th .bh-score-track { background: rgba(0, 0, 0, 0.25); }
 
         /* 左上角座標說明：賣出價在上、買入價在下，中間對角線分隔 */
         thead th.corner-th {
@@ -344,8 +377,8 @@
                 </select>
             </div>
             <div class="set-item">
-                <label>價位格數 (±)</label>
-                <input id="set-range" class="num-input" type="number" min="2" step="1" value="18">
+                <label title="矩陣格數上限 100，避免瀏覽器/視窗卡死">價位格數 (±)</label>
+                <input id="set-range" class="num-input" type="number" min="2" max="100" step="1" value="18" title="最大 100（矩陣會是 (2×100+1)² 格，太大會很卡）">
             </div>
             <div class="set-item">
                 <label>間隔模式</label>
@@ -357,6 +390,14 @@
             <div class="set-item">
                 <label id="set-step-label">價格間距 $</label>
                 <input id="set-interval" class="num-input" type="number" min="0.01" step="0.1" value="1">
+            </div>
+            <div class="set-item">
+                <label title="VaR/CVaR 用的信心水準，越高代表看更極端的尾部風險">VaR信心水準 %</label>
+                <input id="set-confidence" class="num-input" type="number" min="50" max="99.9" step="0.5" value="95">
+            </div>
+            <div class="set-item">
+                <label title="信心值計算所比對的K線形態天數，越小越敏感但雜訊也越大">K線窗口(天)</label>
+                <input id="set-window" class="num-input" type="number" min="2" max="60" step="1" value="5">
             </div>
             <button class="btn" id="recalc-btn">重新計算</button>
             <span id="recalc-status"></span>
@@ -421,17 +462,61 @@
             tableContainer.scrollTop = st;
         };
 
-        // 某買入價(列)的風險：蝕錢機率、VaR/CVaR 潛在虧損、做T評級。列標題與 tooltip 共用。
+        // 通用防抖：輸入框連續打字時，只在停手 delay ms 後才真的執行（避免整表反覆重繪）
+        const debounce = (fn, delay) => {
+            let timer = null;
+            return (...args) => {
+                clearTimeout(timer);
+                timer = setTimeout(() => fn(...args), delay);
+            };
+        };
+        const debouncedRerender = debounce(reRenderKeepView, 200);
+
+        // 把股數/佣金設定記到桌面版設定檔（不觸發重新計算，也不影響瀏覽器後備模式）
+        const persistClientSettings = () => {
+            const api = window.pywebview && window.pywebview.api;
+            if (!api || !api.save_client_settings) return;
+            const payload = { shares: currentShares, commission_mode: currentCommMode };
+            if (currentCommMode === 'fixed') payload.commission_fixed = currentCommValue;
+            else payload.commission_pct = currentCommValue;
+            Promise.resolve(api.save_client_settings(payload)).catch(() => {});
+        };
+        const debouncedPersistClientSettings = debounce(persistClientSettings, 400);
+
+        // 做T評分：把「VaR價 ~ 現價」當作滿分平台(100分)，往上(追高)/往下(接刀)用平滑的常態曲線衰減，
+        // 取代舊版「一過門檻就直接跳級」的四段判斷。衰減尺度分別借用「現價−VaR」與「VaR−CVaR」的距離，
+        // 兩側都在偏離平台一個對應風險單位時衰減到約 13.5 分、兩個單位時趨近 0 分。
+        const computeRowScore = (buy, lastPrice, varPrice, cvarPrice) => {
+            const mid = (varPrice + lastPrice) / 2;                 // 平台中心
+            const halfWidth = Math.abs(lastPrice - varPrice) / 2;   // 平台半寬(=滿分區間，恰為原本的「值博」範圍)
+            const sigmaDown = Math.max(1e-9, varPrice - cvarPrice); // 下側衰減尺度：VaR→CVaR 距離
+            const sigmaUp = Math.max(1e-9, lastPrice - varPrice);   // 上側衰減尺度：沿用 現價−VaR 距離(現價之上無天然統計量可借)
+            const isHighSide = buy > mid;
+            const dist = isHighSide ? (buy - mid) : (mid - buy);
+            const sigma = isHighSide ? sigmaUp : sigmaDown;
+            const excess = Math.max(0, dist - halfWidth);           // 平台範圍內 excess=0 → 滿分，不再有懸崖
+            const z = excess / sigma;
+            return { score: 100 * Math.exp(-2 * z * z), isHighSide };
+        };
+
+        // 某買入價(列)的風險：蝕錢機率、VaR/CVaR 潛在虧損、做T評分。列標題與 tooltip 共用。
         const computeRowRisk = (r) => {
             const d = currentData;
             const buy = d.price_levels[r];
             const lossProb = d.loss_prob ? d.loss_prob[r] : null;
             const varLoss = buy * currentShares * ((d.var_pct || 0) / 100);
             const cvarLoss = buy * currentShares * ((d.cvar_pct || 0) / 100);
-            let emoji = '✅', text = '值博';
-            if (buy <= d.cvar_price) { emoji = '⛔'; text = '不建議'; }
-            else if (buy <= d.var_price) { emoji = '⚠️'; text = '謹慎'; }
-            return { buy, lossProb, varLoss, cvarLoss, emoji, text };
+
+            const { score: rawScore, isHighSide } = computeRowScore(buy, d.last_price, d.var_price, d.cvar_price);
+            const score = Math.round(rawScore);
+
+            // 文字標籤保留給快速掃視用，但改由連續分數換算而來，邊界感受上不再是生硬懸崖
+            let emoji, text, cls;
+            if (score >= 80) { emoji = '✅'; text = '值博'; cls = 'tag-good'; }
+            else if (score >= 45) { emoji = '⚠️'; text = isHighSide ? '偏貴' : '謹慎'; cls = 'tag-caution'; }
+            else { emoji = isHighSide ? '⚠️' : '⛔'; text = isHighSide ? '追高' : '不建議'; cls = isHighSide ? 'tag-chase' : 'tag-bad'; }
+
+            return { buy, lossProb, varLoss, cvarLoss, emoji, text, cls, score };
         };
 
         // ====================== 縮放 (滾輪 / 按鈕，定點縮放) ======================
@@ -588,7 +673,7 @@
                     `蝕錢機率: ${risk.lossProb.toFixed(1)}%\n` +
                     `VaR 潛在虧損: -$${risk.varLoss.toFixed(2)}\n` +
                     `CVaR 潛在虧損: -$${risk.cvarLoss.toFixed(2)}\n` +
-                    `做T評級: ${risk.text}`;
+                    `做T評分: ${risk.score}/100 (${risk.text})`;
             }
             tooltipContent.textContent =
                 `買入: ${buy.toFixed(2)}\n` +
@@ -657,6 +742,8 @@
                     ? (data.interval_pct ?? 0.5)
                     : (data.interval ?? (lv.length > 1 ? +(lv[1] - lv[0]).toFixed(2) : 1));
             }
+            if (el('set-confidence')) el('set-confidence').value = +((data.confidence ?? 0.95) * 100).toFixed(2);
+            if (el('set-window')) el('set-window').value = data.k_line_window_size ?? 5;
             updateStepLabel(mode);
         };
 
@@ -677,7 +764,7 @@
                         <span class="value inline-field">
                             <input id="ticker-input" class="num-input ticker-input" type="text" value="${data.ticker}" title="輸入代號後按 Enter 或「載入」">
                             <button class="btn btn-sm" id="load-btn" title="載入此股票">載入</button>
-                            <span class="at-price">@ ${data.last_price.toFixed(2)}</span>
+                            <span class="at-price" title="這是歷史資料最後一筆「日收盤價」，並非即時報價；盤中查看時實際成交價可能已不同">@ ${data.last_price.toFixed(2)} 收盤(${data.date_end})</span>
                         </span>
                     </div>
                     <div class="info-item editable">
@@ -726,7 +813,8 @@
                 const v = parseInt(sharesInput.value, 10);
                 if (!Number.isFinite(v) || v < 1) return;
                 currentShares = v;
-                reRenderKeepView();
+                debouncedRerender();       // 打字時防抖，停手 200ms 後才重繪整張表
+                debouncedPersistClientSettings();
             });
 
             // 佣金：模式(% / $每筆) + 數值，即時重算
@@ -739,15 +827,24 @@
             };
             commMode.value = currentCommMode;
             showCommValue();
-            const applyCommInputs = () => {
+            const updateCommState = () => {
                 currentCommMode = commMode.value;
                 const v = parseFloat(commValue.value);
                 const num = Number.isFinite(v) && v >= 0 ? v : 0;
                 currentCommValue = currentCommMode === 'percent' ? num / 100 : num;
-                reRenderKeepView();
             };
-            commMode.addEventListener('change', () => { applyCommInputs(); showCommValue(); });
-            commValue.addEventListener('input', applyCommInputs);
+            // 切換 %/$模式是離散操作(不像打字)，維持即時重繪；數值輸入則防抖，避免每個字都重繪整表
+            commMode.addEventListener('change', () => {
+                updateCommState();
+                showCommValue();
+                reRenderKeepView();
+                debouncedPersistClientSettings();
+            });
+            commValue.addEventListener('input', () => {
+                updateCommState();
+                debouncedRerender();
+                debouncedPersistClientSettings();
+            });
         };
 
         const getHeatmapColor = (pnl_pct) => {
@@ -787,9 +884,10 @@
                 const risk = computeRowRisk(rowIndex);
                 const lossLine = risk.lossProb != null ? `<div class="pnl-loss">蝕 ${risk.lossProb.toFixed(1)}%</div>` : '';
                 const riskHtml = (risk.lossProb === null) ? '' :
-                    `<div class="bh-risk">蝕 ${risk.lossProb.toFixed(1)}%</div>` +
+                    `<div class="bh-risk" title="隔日收盤仍低於 ${risk.buy.toFixed(2)} 的歷史機率（買在越高的價位，此數字必然越高，並非「越高越值得」的訊號，請改看下方做T評分）">蝕 ${risk.lossProb.toFixed(1)}%</div>` +
                     `<div class="bh-loss" title="VaR 潛在單日虧損 -$${risk.varLoss.toFixed(2)} / CVaR -$${risk.cvarLoss.toFixed(2)}">VaR -$${risk.varLoss.toFixed(2)}</div>` +
-                    `<div class="bh-tag" title="做T評級：${risk.text}">${risk.emoji} ${risk.text}</div>`;
+                    `<div class="bh-tag ${risk.cls}" title="做T評分：${risk.score}/100（VaR價~現價=滿分平台，往兩側常態衰減，非四段生硬判斷）">${risk.emoji} ${risk.text} ${risk.score}</div>` +
+                    `<div class="bh-score-track" title="做T評分 ${risk.score}/100"><div class="bh-score-fill ${risk.cls}" style="width:${risk.score}%"></div></div>`;
                 bodyHtml += `<tr${rowCls}><th><div class="bh-price">${risk.buy.toFixed(2)}</div>${riskHtml}</th>`;
                 row.forEach((cell, colIndex) => {
                     const { pnl, pnl_pct } = computeCell(cell.buy, cell.sell);
@@ -833,13 +931,18 @@
             const ticker = (tickerEl ? tickerEl.value.trim() : '').toUpperCase() || (currentData ? currentData.ticker : 'AAPL');
             const stepMode = val('set-step-mode');
             const stepVal = parseFloat(val('set-interval')) || (stepMode === 'percent' ? 0.5 : 1);
+            const priceRange = clamp(parseInt(val('set-range'), 10) || 18, 2, 100);
+            const confidencePct = clamp(parseFloat(val('set-confidence')) || 95, 50, 99.9);
+            const windowDays = clamp(parseInt(val('set-window'), 10) || 5, 2, 60);
             const params = {
                 ticker,
                 period: val('set-period'),
-                price_range: parseInt(val('set-range'), 10) || 18,
+                price_range: priceRange,
                 step_mode: stepMode,
                 commission_mode: currentCommMode,
                 shares: currentShares || 5,
+                confidence: +(confidencePct / 100).toFixed(4),
+                window: windowDays,
             };
             if (stepMode === 'percent') params.interval_pct = stepVal;
             else params.interval = stepVal;
