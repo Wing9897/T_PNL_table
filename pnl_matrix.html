@@ -86,6 +86,28 @@
         .info-item .value .ticker { color: #4fc3f7; }
         .info-item .value .var-val { color: var(--negative-color); }
 
+        /* VaR/CVaR 價位超出目前矩陣顯示範圍時的警示（此時表格看不到任何 VaR/CVaR 風險色塊，並非顏色失效） */
+        .oor-warn {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 6px;
+            font-size: var(--fs-small);
+            font-weight: normal;
+            color: #ffca28;
+        }
+        .oor-warn .oor-fix-btn {
+            background: rgba(255, 202, 40, 0.16);
+            border: 1px solid rgba(255, 202, 40, 0.5);
+            color: #ffca28;
+            border-radius: 3px;
+            padding: 1px 6px;
+            font-size: var(--fs-small);
+            cursor: pointer;
+            font-family: var(--font-family);
+        }
+        .oor-warn .oor-fix-btn:hover { background: rgba(255, 202, 40, 0.3); }
+
         /* 共用小工具類別（取代 inline style，便於維護） */
         .inline-field { display: flex; align-items: center; gap: 4px; }
         .at-price { color: #888; font-weight: normal; font-size: var(--fs-small); }
@@ -756,7 +778,32 @@
             else { label.textContent = '價格間距 $'; input.step = '0.1'; input.min = '0.01'; }
         };
 
+        // 檢查 VaR/CVaR 價位是否落在目前矩陣顯示的價位範圍之外。
+        // 若超出範圍，表格裡不會有任何一格觸發 VaR/CVaR 風險色（琥珀/紫），並非顏色邏輯壞掉。
+        const checkOutOfRange = (data) => {
+            const levels = data.price_levels;
+            const minLevel = levels[0], maxLevel = levels[levels.length - 1];
+            const isOOR = (p) => p < minLevel || p > maxLevel;
+            return { var: isOOR(data.var_price), cvar: isOOR(data.cvar_price), minLevel, maxLevel };
+        };
+
+        // 依 VaR/CVaR 與現價的距離，反推需要多少格「價位格數」才能把兩者都納入顯示範圍，
+        // 並自動套用到設定面板、觸發重新計算（一鍵修正「超出範圍」警示）。
+        const expandRangeToCoverRisk = (data) => {
+            const step = data.step || 1;
+            const worstPrice = Math.min(data.var_price, data.cvar_price);
+            const neededSteps = Math.ceil(Math.abs(data.last_price - worstPrice) / step) + 1;
+            const rangeInput = $('set-range');
+            if (rangeInput) rangeInput.value = clamp(neededSteps, 2, 100);
+            $('settings-panel').classList.add('open');
+            doRegenerate();
+        };
+
         const renderInfoBar = (data) => {
+            const oor = checkOutOfRange(data);
+            const oorHint = (varOrCvar) => varOrCvar
+                ? `<span class="oor-warn" title="此風險價位已超出目前矩陣顯示範圍（${oor.minLevel.toFixed(2)} ~ ${oor.maxLevel.toFixed(2)}），所以表格裡看不到對應的風險色塊。點右邊按鈕可自動擴大「價位格數」涵蓋此範圍。">⚠ 超出範圍 <button type="button" class="oor-fix-btn" data-oor-fix="1">擴大範圍</button></span>`
+                : '';
             infoBar.innerHTML = `
                 <div class="inputs-group">
                     <div class="info-item editable">
@@ -785,11 +832,11 @@
                 <div class="metrics-group">
                     <div class="info-item">
                         <span class="label">VaR ${data.confidence * 100}% (日)</span>
-                        <span class="value"><span class="var-val">${data.var_price.toFixed(2)} (-${data.var_pct.toFixed(2)}%)</span></span>
+                        <span class="value"><span class="var-val">${data.var_price.toFixed(2)} (-${data.var_pct.toFixed(2)}%)</span>${oorHint(oor.var)}</span>
                     </div>
                     <div class="info-item">
                         <span class="label">CVaR (日)</span>
-                        <span class="value"><span class="var-val">${data.cvar_price.toFixed(2)} (-${data.cvar_pct.toFixed(2)}%)</span></span>
+                        <span class="value"><span class="var-val">${data.cvar_price.toFixed(2)} (-${data.cvar_pct.toFixed(2)}%)</span>${oorHint(oor.cvar)}</span>
                     </div>
                     <div class="info-item" title="期間內最高點 ${data.mdd_peak_price ?? ''}@${data.mdd_peak_date ?? ''} → 最低點 ${data.mdd_trough_price ?? ''}@${data.mdd_trough_date ?? ''}">
                         <span class="label">最大跌幅</span>
@@ -801,6 +848,11 @@
                     </div>
                 </div>
             `;
+            // 「擴大範圍」一鍵修正按鈕（VaR 或 CVaR 超出目前顯示範圍時才會出現）
+            infoBar.querySelectorAll('[data-oor-fix]').forEach((btn) => {
+                btn.addEventListener('click', () => expandRangeToCoverRisk(data));
+            });
+
             // 股票代號：按「載入」或 Enter 觸發重算
             const tickerInput = $('ticker-input');
             const loadBtn = $('load-btn');
