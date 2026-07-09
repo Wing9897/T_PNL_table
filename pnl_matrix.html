@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PnL Matrix</title>
+    <link rel="icon" href="data:,">
+    <link rel="stylesheet" href="pnl_matrix.css">
+</head>
+<body>
+    <div class="container">
+        <div class="app-header">
+            <div class="title-block">
+                <h1>PnL Matrix</h1>
+                <span class="subtitle">買入 × 賣出 損益矩陣 · 含信心值與 VaR/CVaR 風險</span>
+            </div>
+            <div class="toolbar">
+                <div class="zoom-group">
+                    <button class="btn" id="zoom-out" title="縮小 (-)">−</button>
+                    <span id="zoom-level">100%</span>
+                    <button class="btn" id="zoom-in" title="放大 (+)">＋</button>
+                </div>
+                <button class="btn" id="center-btn" title="回到參考價 (0)">回到參考價</button>
+                <button class="btn" id="settings-btn" title="資料設定 / 重新計算">⚙ 設定</button>
+                <button class="btn" id="reload-btn" title="重新載入數據">重新整理</button>
+            </div>
+        </div>
+
+        <div id="info-bar">
+            <div class="inputs-group">
+                <div class="info-item editable">
+                    <span class="label">股票代號</span>
+                    <span class="value inline-field">
+                        <input id="ticker-input" class="num-input ticker-input" type="text" value="TSLA" title="輸入代號後按 Enter 或「載入」">
+                        <button class="btn btn-sm" id="load-btn" type="button" title="載入此股票">載入</button>
+                    </span>
+                </div>
+                <div class="info-item editable">
+                    <span class="label">參考價位</span>
+                    <span class="value inline-field">
+                        <label class="price-mode-opt" title="勾選時以歷史日收盤價為矩陣中心（預設）">
+                            <input type="checkbox" id="use-closing-price" checked> 收盤價
+                        </label>
+                        <input id="hypothetical-price" class="num-input hypo-price-input" type="number" min="0.01" step="0.01" disabled
+                            title="取消勾選收盤價後，可輸入假設價作為矩陣中心">
+                        <span id="closing-price-label" class="at-price" title="yfinance 最後一筆日收盤價，非即時報價">收盤 —</span>
+                    </span>
+                </div>
+                <div class="info-item editable">
+                    <span class="label">持股數量</span>
+                    <span class="value inline-field"><input id="shares-input" class="num-input" type="number" min="1" step="1" value="5"> 股</span>
+                </div>
+                <div class="info-item editable">
+                    <span class="label">佣金</span>
+                    <span class="value inline-field">
+                        <select id="comm-mode" class="num-input">
+                            <option value="percent">%</option>
+                            <option value="fixed">$/筆</option>
+                        </select>
+                        <input id="comm-value" class="num-input comm-value-input" type="number" min="0" step="0.01">
+                    </span>
+                </div>
+            </div>
+            <div class="metrics-group">
+                <div class="info-item">
+                    <span class="label" id="var-label">VaR 95% (日)</span>
+                    <span class="value"><span id="var-value" class="var-val">—</span><span id="var-oor"></span></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">CVaR (日)</span>
+                    <span class="value"><span id="cvar-value" class="var-val">—</span><span id="cvar-oor"></span></span>
+                </div>
+                <div class="info-item" id="mdd-item" title="">
+                    <span class="label">最大跌幅</span>
+                    <span class="value"><span id="mdd-value" class="var-val">—</span></span>
+                </div>
+                <div class="info-item">
+                    <span class="label">數據期間</span>
+                    <span class="value" id="period-value">—</span>
+                </div>
+            </div>
+        </div>
+
+        <div id="legend">
+            <span class="lg"><span class="sw" style="background:hsla(145,65%,28%,0.65)"></span>獲利</span>
+            <span class="lg"><span class="sw" style="background:hsla(0,75%,28%,0.65)"></span>虧損</span>
+            <span class="lg"><span class="sw" style="background:var(--var-bg-color)"></span>VaR 風險區</span>
+            <span class="lg"><span class="sw" style="background:var(--cvar-bg-color)"></span>CVaR 風險區</span>
+            <span class="lg"><span class="sw" style="background:var(--current-price-highlight)"></span>參考價位</span>
+        </div>
+
+        <div id="settings-panel">
+            <div class="set-item">
+                <label>數據期間</label>
+                <select id="set-period" class="num-input">
+                    <option value="1mo">1mo</option>
+                    <option value="3mo">3mo</option>
+                    <option value="6mo">6mo</option>
+                    <option value="1y" selected>1y</option>
+                    <option value="2y">2y</option>
+                    <option value="5y">5y</option>
+                    <option value="max">max</option>
+                </select>
+            </div>
+            <div class="set-item">
+                <label title="矩陣格數上限 300，避免瀏覽器/視窗卡死">價位格數 (±)</label>
+                <input id="set-range" class="num-input" type="number" min="2" max="300" step="1" value="30"
+                    title="最大 300（矩陣會是 (2×300+1)² 格，太大會很卡）">
+            </div>
+            <div class="set-item">
+                <label>間隔模式</label>
+                <select id="set-step-mode" class="num-input">
+                    <option value="dollar">固定金額 $</option>
+                    <option value="percent">百分比 %</option>
+                </select>
+            </div>
+            <div class="set-item">
+                <label id="set-step-label">價格間距 $</label>
+                <input id="set-interval" class="num-input" type="number" min="0.01" step="0.1" value="1">
+            </div>
+            <div class="set-item">
+                <label title="VaR/CVaR 用的信心水準，越高代表看更極端的尾部風險">VaR信心水準 %</label>
+                <input id="set-confidence" class="num-input" type="number" min="50" max="99.9" step="0.5" value="95">
+            </div>
+            <div class="set-item">
+                <label title="信心值計算所比對的K線形態天數，越小越敏感但雜訊也越大">K線窗口(天)</label>
+                <input id="set-window" class="num-input" type="number" min="2" max="60" step="1" value="5">
+            </div>
+            <button class="btn" id="recalc-btn">重新計算</button>
+            <span id="recalc-status"></span>
+        </div>
+
+        <div id="table-wrap">
+            <div id="table-container">
+                <table>
+                    <thead id="table-head"></thead>
+                    <tbody id="table-body"></tbody>
+                </table>
+            </div>
+            <div id="hint">左鍵拖曳平移 · 滾輪縮放</div>
+            <div id="loading"><div class="spinner"></div><span>正在計算數據…</span></div>
+        </div>
+
+        <div id="error-container"></div>
+    </div>
+
+    <div id="tooltip"><div id="tooltip-content"></div></div>
+
+    <script src="pnl_matrix.js"></script>
+</body>
+</html>

@@ -1,0 +1,53 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ "main" ]
+
+jobs:
+  build_and_release:
+    runs-on: windows-latest
+    permissions:
+      contents: write # Needed to create releases and push tags
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0 # Required for git-based version bumping
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Run tests
+      run: pytest tests/ -q
+
+    - name: Build with PyInstaller
+      run: pyinstaller --noconfirm --windowed --onefile --name PnLMatrix --add-data "pnl_matrix.html;." --add-data "pnl_matrix.css;." --add-data "pnl_matrix.js;." app.py
+
+    - name: List build artifacts
+      run: ls -R dist
+      shell: bash
+
+    - name: Bump version and push tag
+      id: tag_version
+      uses: mathieudutour/github-tag-action@v6.2
+      with:
+        github_token: ${{ secrets.GITHUB_TOKEN }}
+        default_bump: "patch"
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: ${{ steps.tag_version.outputs.new_tag }}
+        name: "Release ${{ steps.tag_version.outputs.new_tag }}"
+        body: "Automated release based on the latest changes."
+        files: dist/*.exe # Use a glob pattern for robustness
