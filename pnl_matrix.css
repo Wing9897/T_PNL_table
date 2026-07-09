@@ -1,0 +1,368 @@
+:root {
+    --bg-color: #0f0f0f;
+    --text-color: #e0e0e0;
+    --border-color: #333;
+    --header-bg-color: #1a1a1a;
+    --positive-color: #00c853;
+    --negative-color: #ff5252;
+    --positive-bg-base: 145, 65%;   /* 綠色 H,S */
+    --negative-bg-base: 0, 75%;      /* 紅色 H,S */
+    --var-bg-color: #8a5a00;         /* VaR：琥珀橙（與虧損紅明顯不同） */
+    --cvar-bg-color: #6a1b9a;        /* CVaR：紫色（最危險，獨立色相） */
+    --current-price-highlight: #b38f00; /* Gold */
+    --crosshair-bg: rgba(255, 255, 255, 0.08);
+    --font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    --font-mono: 'Cascadia Mono', Consolas, 'SF Mono', 'JetBrains Mono', 'Roboto Mono', ui-monospace, monospace;
+    /* 統一字級系統 */
+    --fs-title: 1.15rem;   /* 標題 */
+    --fs-sub: 0.75rem;     /* 副標 / 提示 */
+    --fs-label: 0.66rem;   /* 大寫小標籤 */
+    --fs-value: 0.92rem;   /* 卡片數值 */
+    --fs-body: 0.84rem;    /* 按鈕 / 一般 */
+    --fs-small: 0.74rem;   /* 次要資訊 */
+    --zoom: 1;
+}
+
+* { box-sizing: border-box; }
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: var(--font-family);
+    margin: 0;
+    padding: 1rem;
+    font-size: 14px;
+}
+
+.container { max-width: 1600px; margin: 0 auto; }
+
+.app-header { display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem 1rem; margin-bottom: 0.9rem; }
+.title-block { display: flex; align-items: baseline; gap: 0.6rem; }
+.app-header h1 { font-size: var(--fs-title); margin: 0; font-weight: 600; letter-spacing: 0.02em; }
+.app-header .subtitle { color: #888; font-size: var(--fs-sub); }
+.toolbar { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+
+#info-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: stretch;
+    gap: 0.6rem;
+    margin-bottom: 0.85rem;
+}
+/* 兩組:可編輯輸入(左) + 唯讀風險指標(右,等寬四欄) */
+.inputs-group { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0.6rem; }
+.metrics-group {
+    flex: 1;
+    min-width: 360px;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.6rem;
+}
+
+#info-bar .info-item {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+    min-width: 124px;
+    min-height: 42px;
+    background: #151515;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 5px 11px;
+}
+/* 可編輯的輸入卡片：青色左邊框標示，與唯讀指標區分 */
+#info-bar .info-item.editable { border-left: 3px solid #4fc3f7; }
+.info-item .label { font-size: var(--fs-label); color: #999; text-transform: uppercase; letter-spacing: 0.05em; }
+.info-item .value { font-size: var(--fs-value); font-weight: bold; font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.info-item .value .ticker { color: #4fc3f7; }
+.info-item .value .var-val { color: var(--negative-color); }
+
+/* VaR/CVaR 價位超出目前矩陣顯示範圍時的警示（此時表格看不到任何 VaR/CVaR 風險色塊，並非顏色失效） */
+.oor-warn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    font-size: var(--fs-small);
+    font-weight: normal;
+    color: #ffca28;
+}
+.oor-warn .oor-fix-btn {
+    background: rgba(255, 202, 40, 0.16);
+    border: 1px solid rgba(255, 202, 40, 0.5);
+    color: #ffca28;
+    border-radius: 3px;
+    padding: 1px 6px;
+    font-size: var(--fs-small);
+    cursor: pointer;
+    font-family: var(--font-family);
+}
+.oor-warn .oor-fix-btn:hover { background: rgba(255, 202, 40, 0.3); }
+
+/* 共用小工具類別（取代 inline style，便於維護） */
+.inline-field { display: flex; align-items: center; gap: 4px; }
+.at-price { color: #888; font-weight: normal; font-size: var(--fs-small); }
+.ticker-input { width: 88px; text-transform: uppercase; }
+.comm-value-input { width: 72px; }
+.hypo-price-input { width: 72px; }
+.btn-sm { padding: 3px 8px; }
+
+.price-mode-opt {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: var(--fs-body);
+    font-weight: normal;
+    cursor: pointer;
+    color: #ccc;
+    user-select: none;
+}
+.price-mode-opt input[type="checkbox"] {
+    accent-color: #4fc3f7;
+    cursor: pointer;
+}
+.num-input:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.num-input {
+    width: 70px;
+    background: #0d0d0d;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 3px 6px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-body);
+    font-weight: bold;
+}
+.num-input:focus { outline: none; border-color: #4fc3f7; }
+select.num-input { width: auto; }
+
+#legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.3rem;
+    margin-bottom: 0.75rem;
+    font-size: var(--fs-small);
+    color: #bbb;
+}
+#legend .lg { display: flex; align-items: center; gap: 6px; }
+#legend .sw { width: 14px; height: 14px; border-radius: 3px; border: 1px solid #444; display: inline-block; }
+
+#settings-panel {
+    display: none;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem 1rem;
+    background: #151515;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.85rem;
+}
+#settings-panel.open { display: flex; }
+#settings-panel .set-item { display: flex; flex-direction: column; gap: 3px; }
+#settings-panel .set-item label { font-size: var(--fs-label); color: #999; text-transform: uppercase; letter-spacing: 0.05em; }
+#settings-panel select.num-input { width: auto; }
+#recalc-status { font-size: var(--fs-small); color: #aaa; align-self: center; }
+#recalc-status.ok { color: var(--positive-color); }
+#recalc-status.err { color: var(--negative-color); }
+
+.btn {
+    background-color: #2a2a2a;
+    color: var(--text-color);
+    border: 1px solid var(--border-color);
+    padding: 0.5rem 0.9rem;
+    cursor: pointer;
+    border-radius: 4px;
+    font-family: var(--font-family);
+    font-size: var(--fs-body);
+    line-height: 1;
+    transition: background-color 0.15s ease;
+}
+.btn:hover { background-color: #3a3a3a; }
+.btn:active { background-color: #444; }
+
+.zoom-group { display: flex; align-items: center; gap: 0.25rem; }
+.zoom-group .btn { min-width: 2.2rem; text-align: center; font-weight: bold; }
+#zoom-level { font-size: var(--fs-small); color: #aaa; min-width: 3.2rem; text-align: center; font-family: var(--font-mono); }
+
+#table-wrap { position: relative; }
+
+#table-container {
+    overflow: hidden;
+    max-height: 74vh;
+    min-height: 220px;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+}
+#table-container.grabbing { cursor: grabbing; }
+
+/* 計算中載入畫面 */
+#loading {
+    position: absolute;
+    inset: 0;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    background: rgba(15, 15, 15, 0.72);
+    backdrop-filter: blur(1px);
+    color: #cfd6dc;
+    font-size: var(--fs-body);
+    letter-spacing: 0.04em;
+    z-index: 6;
+}
+#loading.show { display: flex; }
+#loading .spinner {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    border: 3px solid #2a2a2a;
+    border-top-color: #4fc3f7;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+#hint {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    background: rgba(20, 20, 20, 0.8);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: var(--fs-sub);
+    color: #bbb;
+    pointer-events: none;
+    z-index: 5;
+    transition: opacity 0.4s ease;
+}
+
+table { border-collapse: collapse; white-space: nowrap; width: 100%; font-size: calc(13px * var(--zoom)); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+th, td {
+    border: 1px solid var(--border-color);
+    padding: calc(4px * var(--zoom)) calc(6px * var(--zoom));
+    text-align: center;
+    min-width: calc(72px * var(--zoom));
+    position: relative;
+}
+
+thead th { background-color: var(--header-bg-color); position: sticky; top: 0; z-index: 2; }
+tbody th { background-color: var(--header-bg-color); position: sticky; left: 0; z-index: 1; min-width: calc(96px * var(--zoom)); }
+thead th:first-child { position: sticky; top: 0; left: 0; z-index: 3; }
+
+.pnl-amount { font-weight: bold; font-size: 1em; }
+.pnl-pct { font-size: 0.82em; }
+.pnl-prob { font-size: 0.72em; color: #9e9e9e; }
+.pnl-loss { font-size: 0.72em; color: #ffab91; }
+
+/* 左側買入價欄的風險資訊 */
+tbody th .bh-price { font-weight: bold; font-size: 0.98em; }
+tbody th .bh-risk { font-size: 0.72em; color: #ff9e80; }
+tbody th .bh-loss { font-size: 0.66em; color: #aaa; }
+tbody th .bh-tag {
+    font-size: 0.72em;
+    display: inline-block;
+    margin-top: 1px;
+    padding: 0px 5px;
+    border-radius: 3px;
+    font-weight: 600;
+}
+/* 做T評級四態各自獨立配色，避免只靠 emoji 分辨（謹慎/追高皆為 ⚠️，易混淆） */
+.bh-tag.tag-good    { background: rgba(0, 200, 83, 0.24);  color: #69f0ae; }
+.bh-tag.tag-caution { background: rgba(255, 193, 7, 0.24); color: #ffca28; }
+.bh-tag.tag-bad     { background: rgba(255, 82, 82, 0.24); color: #ff8a80; }
+.bh-tag.tag-chase   { background: rgba(79, 195, 247, 0.24); color: #4fc3f7; }
+/* 現價列（金底）文字改深色，但保留各狀態底色以便一眼區分 */
+.current-price-row th .bh-tag.tag-good    { background: rgba(0, 60, 25, 0.35);  color: #003d1a; }
+.current-price-row th .bh-tag.tag-caution { background: rgba(90, 60, 0, 0.35);  color: #4a2a00; }
+.current-price-row th .bh-tag.tag-bad     { background: rgba(90, 0, 0, 0.35);   color: #4a0000; }
+.current-price-row th .bh-tag.tag-chase   { background: rgba(0, 40, 60, 0.35);  color: #00303d; }
+
+/* 做T評分連續分數條：取代單純的四段跳級文字，寬度=分數，一眼看出漸層強弱 */
+.bh-score-track {
+    width: 100%;
+    height: 3px;
+    margin-top: 2px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.bh-score-fill { height: 100%; border-radius: 2px; transition: width 0.15s ease; }
+.bh-score-fill.tag-good    { background: #00c853; }
+.bh-score-fill.tag-caution { background: #ffc107; }
+.bh-score-fill.tag-bad     { background: #ff5252; }
+.bh-score-fill.tag-chase   { background: #4fc3f7; }
+.current-price-row th .bh-score-track { background: rgba(0, 0, 0, 0.25); }
+
+/* 左上角座標說明：賣出價在上、買入價在下，中間對角線分隔 */
+thead th.corner-th {
+    background-image: linear-gradient(to top right, transparent calc(50% - 0.5px), var(--border-color) 50%, transparent calc(50% + 0.5px));
+}
+.corner-inner { display: flex; flex-direction: column; justify-content: space-between; min-height: 2.6em; gap: 2px; }
+.corner-sell { align-self: flex-end; color: #4fc3f7; font-size: 0.8em; }
+.corner-buy { align-self: flex-start; color: #ffb59e; font-size: 0.8em; }
+/* 現價列（金底）改用深色文字 */
+.current-price-row th .bh-risk,
+.current-price-row th .bh-loss { color: #4a2a00; }
+
+.positive { color: var(--positive-color); }
+.negative { color: var(--negative-color); }
+
+.diagonal { opacity: 0.55; }
+
+/* 風險區:獲利/損失文字沿用綠/紅，加細微陰影提升在琥珀/紫底上的可讀性 */
+td.risk-var .pnl-amount, td.risk-var .pnl-pct, td.risk-var .pnl-loss,
+td.risk-cvar .pnl-amount, td.risk-cvar .pnl-pct, td.risk-cvar .pnl-loss { text-shadow: 0 1px 2px rgba(0,0,0,0.65); }
+td.risk-var .pnl-prob, td.risk-cvar .pnl-prob { color: #d8d8d8; }
+
+.current-price-row th { background-color: var(--current-price-highlight) !important; color: black; }
+.current-price-col { background-color: var(--current-price-highlight) !important; color: black; }
+
+/* 現價格（對角交點）高亮環 */
+td[data-current="1"] {
+    outline: 2px solid var(--current-price-highlight);
+    outline-offset: -2px;
+}
+
+/* sticky 表頭陰影，增加層次感 */
+thead th { box-shadow: 0 2px 4px rgba(0,0,0,0.4); }
+tbody th { box-shadow: 2px 0 4px rgba(0,0,0,0.4); }
+
+/* 十字準星高亮 */
+tbody tr.hl-row td { box-shadow: inset 0 0 0 9999px var(--crosshair-bg); }
+td.hl-col, th.hl-col { box-shadow: inset 0 0 0 9999px var(--crosshair-bg); }
+
+#tooltip {
+    position: fixed;
+    display: none;
+    background-color: rgba(20, 20, 20, 0.95);
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 10px 12px;
+    font-size: var(--fs-small);
+    font-family: var(--font-mono);
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+#tooltip-content { white-space: pre; line-height: 1.5; }
+
+#error-container {
+    color: var(--negative-color);
+    padding: 2rem;
+    text-align: center;
+    border: 1px dashed var(--negative-color);
+    border-radius: 4px;
+    margin: 1rem 0;
+    display: none;
+}
